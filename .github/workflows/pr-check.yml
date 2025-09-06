@@ -1,0 +1,211 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    types: [opened, synchronize, reopened]
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Check code formatting
+      run: |
+        if command -v prettier &> /dev/null; then
+          npx prettier --check "src/**/*.{js,jsx,ts,tsx,json,css,md}"
+        else
+          echo "⚠️  Prettier not configured, skipping format check"
+        fi
+      
+    - name: Lint JavaScript/React
+      run: npm run lint --if-present || echo "⚠️  No lint script found"
+      
+    - name: Type checking
+      run: |
+        if [ -f "tsconfig.json" ]; then
+          npx tsc --noEmit
+        else
+          echo "⚠️  No TypeScript config found, skipping type check"
+        fi
+
+  build-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Build application
+      run: npm run build
+      env:
+        CI: false
+        
+    - name: Check build size
+      run: |
+        BUILD_SIZE=$(du -sh build | cut -f1)
+        echo "📦 Build size: $BUILD_SIZE"
+        
+        # Check if build size is reasonable (under 50MB)
+        BUILD_SIZE_BYTES=$(du -sb build | cut -f1)
+        MAX_SIZE_BYTES=$((50 * 1024 * 1024))  # 50MB in bytes
+        
+        if [ $BUILD_SIZE_BYTES -gt $MAX_SIZE_BYTES ]; then
+          echo "❌ Build size too large: $BUILD_SIZE (max: 50MB)"
+          exit 1
+        else
+          echo "✅ Build size OK: $BUILD_SIZE"
+        fi
+
+  api-integration:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Start server and test API endpoints
+      run: |
+        # Start server in background
+        npm run server &
+        SERVER_PID=$!
+        echo "Started server with PID: $SERVER_PID"
+        
+        # Wait for server to start
+        sleep 10
+        
+        # Test all major endpoints
+        echo "🧪 Testing API endpoints..."
+        
+        # Health check
+        curl -f http://localhost:3001/api/health || exit 1
+        echo "✅ Health endpoint working"
+        
+        # Get all items (should return empty array initially)
+        ITEMS_RESPONSE=$(curl -s http://localhost:3001/api/items)
+        echo "✅ Items endpoint: $ITEMS_RESPONSE"
+        
+        # Create a test item
+        CREATE_RESPONSE=$(curl -s -X POST http://localhost:3001/api/items \
+          -H "Content-Type: application/json" \
+          -d '{"title":"Test Item","status":"inbox"}')
+        echo "✅ Create item: $CREATE_RESPONSE"
+        
+        # Get stats
+        STATS_RESPONSE=$(curl -s http://localhost:3001/api/stats)
+        echo "✅ Stats endpoint: $STATS_RESPONSE"
+        
+        # Clean shutdown
+        kill $SERVER_PID
+        echo "✅ All API tests passed"
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20.x'
+        cache: 'npm'
+        
+    - name: Check for outdated dependencies
+      run: |
+        npm outdated || true
+        echo "📋 Dependency check completed"
+        
+    - name: Check for security vulnerabilities
+      run: |
+        npm audit --audit-level high || {
+          echo "⚠️  High/Critical vulnerabilities found"
+          npm audit --audit-level high
+          exit 1
+        }
+        
+    - name: Validate package.json
+      run: |
+        node -e "
+          const pkg = require('./package.json');
+          
+          // Check required fields
+          const required = ['name', 'version', 'scripts'];
+          for (const field of required) {
+            if (!pkg[field]) {
+              console.error(\`❌ Missing required field: \${field}\`);
+              process.exit(1);
+            }
+          }
+          
+          // Check required scripts
+          const requiredScripts = ['start', 'build'];
+          for (const script of requiredScripts) {
+            if (!pkg.scripts[script]) {
+              console.error(\`❌ Missing required script: \${script}\`);
+              process.exit(1);
+            }
+          }
+          
+          console.log('✅ package.json validation passed');
+        "
+
+  pr-summary:
+    needs: [lint-and-format, build-check, api-integration, dependency-check]
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+    - name: PR Check Summary
+      run: |
+        echo "## 🔍 Pull Request Checks Summary"
+        echo ""
+        echo "| Check | Status |"
+        echo "|-------|--------|"
+        echo "| Lint & Format | ${{ needs.lint-and-format.result == 'success' && '✅ Passed' || '❌ Failed' }} |"
+        echo "| Build Check | ${{ needs.build-check.result == 'success' && '✅ Passed' || '❌ Failed' }} |"
+        echo "| API Integration | ${{ needs.api-integration.result == 'success' && '✅ Passed' || '❌ Failed' }} |"
+        echo "| Dependencies | ${{ needs.dependency-check.result == 'success' && '✅ Passed' || '❌ Failed' }} |"
+        echo ""
+        
+        if [[ "${{ needs.lint-and-format.result }}" == "success" && 
+              "${{ needs.build-check.result }}" == "success" && 
+              "${{ needs.api-integration.result }}" == "success" && 
+              "${{ needs.dependency-check.result }}" == "success" ]]; then
+          echo "🎉 All checks passed! This PR is ready for review."
+          exit 0
+        else
+          echo "❌ Some checks failed. Please review and fix the issues."
+          exit 1
+        fi

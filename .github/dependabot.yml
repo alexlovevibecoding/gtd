@@ -1,0 +1,73 @@
+version: 2
+
+updates:
+  # Enable version updates for npm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 10
+    assignees:
+      - "@me"
+    reviewers:
+      - "@me"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "automated"
+    
+    # Group minor and patch updates
+    groups:
+      react-ecosystem:
+        patterns:
+          - "react*"
+          - "@types/react*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      build-tools:
+        patterns:
+          - "@babel/*"
+          - "webpack*"
+          - "eslint*"
+          - "prettier*"
+        update-types:
+          - "minor"
+          - "patch"
+      
+      testing:
+        patterns:
+          - "jest*"
+          - "@testing-library/*"
+        update-types:
+          - "minor"
+          - "patch"
+    
+    # Ignore specific packages that need manual updates
+    ignore:
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-scripts"
+        update-types: ["version-update:semver-major"]
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    labels:
+      - "github-actions"
+      - "automated"
