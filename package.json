@@ -9,7 +9,7 @@
   },
   "devDependencies": {
     "sqlite3": "^5.1.6",
-    "express": "^4.18.2",
+    "express": "^5.2.1",
     "cors": "^2.8.5",
     "concurrently": "^7.6.0",
     "prettier": "^3.0.0",
